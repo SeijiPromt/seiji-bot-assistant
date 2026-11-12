@@ -4,7 +4,6 @@ let monitorInterval = null;
 let seenPostIds = new Set();
 let seenCommentIds = new Set();
 
-// Change this to your exact UID if you want to be specific
 const TARGET_UID = "61586962211234"; 
 
 async function fetchTimeline(api) {
@@ -12,7 +11,6 @@ async function fetchTimeline(api) {
     const appstate = api.getAppState();
     const cookie = appstate.map(c => `${c.key}=${c.value}`).join('; ');
     
-    // We use TARGET_UID instead of api.getCurrentUserID() here
     const res = await axios.get(`https://mbasic.facebook.com/profile.php?id=${TARGET_UID}`, {
       headers: {
         'cookie': cookie,
@@ -66,7 +64,8 @@ module.exports.run = async ({ api, event, args, utils }) => {
         if (seenPostIds.has(pid)) continue;
         seenPostIds.add(pid);
 
-        api.postReaction(pid, "❤️", (err) => { if(err) console.error("React err:", err) });
+        // FIXED: Using setMessageReaction for account bots
+        api.setMessageReaction("❤️", pid, (err) => { if(err) console.error("React err:", err) });
         api.comment("Nice post! 🔥", pid, (err) => { if(err) console.error("Comment err:", err) });
 
         setInterval(() => {
@@ -89,7 +88,6 @@ module.exports.run = async ({ api, event, args, utils }) => {
     return;
   }
 
-  // Manual fallback remains the same
   const url = args[0];
   if (!url || !url.includes("facebook.com")) {
     return api.sendMessage(utils.error("Usage:\n!af on - Start auto monitor\n!af stop - Stop monitor\n!af <url> - Manual monitor"), event.threadID);
@@ -106,7 +104,8 @@ module.exports.run = async ({ api, event, args, utils }) => {
 
   if (!postID) return api.sendMessage(utils.error("Invalid URL. Please use the direct post link."), event.threadID);
 
-  api.postReaction(postID, "❤️", () => {});
+  // FIXED: Using setMessageReaction here too
+  api.setMessageReaction("❤️", postID, () => {});
   api.comment("Nice post! 🔥", postID, () => {});
   api.sendMessage(utils.success(`Manual Monitor Activated for: ${postID}`), event.threadID);
 
