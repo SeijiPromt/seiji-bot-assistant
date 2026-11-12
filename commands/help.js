@@ -5,6 +5,8 @@ module.exports.run = async ({ api, event, config, utils }) => {
     `Prefix: [ ${p} ]`,
     `━━━━━━━━━━━━━━━━━━`,
     `📡 ${p}autofeed on / stop - Auto feed monitor`,
+    `🤖 ${p}autoreact on / off - Auto react to msgs`,
+    `📝 ${p}autopost <text> - Post to profile`,
     `━━━━━━━━━━━━━━━━━━`,
     `🧠 ${p}gpt <prompt> - Chat with AI`,
     `🎨 ${p}imagine <prompt> - Generate image`,
