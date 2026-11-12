@@ -1,6 +1,35 @@
+const axios = require("axios");
+
 let monitorInterval = null;
 let seenPostIds = new Set();
 let seenCommentIds = new Set();
+
+// Helper to resolve share links and extract the final Post ID
+async function resolvePostId(url) {
+  // If it's already a direct post URL, extract the ID
+  let match = url.match(/(?:posts|permalink|photo|story_fbid)\/(?:.*?)?(\d{10,})/);
+  if (match) return match[1];
+  if (url.match(/\d{15,}/)) return url.match(/\d{15,}/)[0];
+
+  // If it's a /share/ link, follow the redirect
+  if (url.includes("/share/")) {
+    try {
+      const res = await axios.get(url, {
+        maxRedirects: 5,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+      });
+      const finalUrl = res.request.res.responseUrl || url;
+      match = finalUrl.match(/(?:posts|permalink|photo|story_fbid)\/(?:.*?)?(\d{10,})/);
+      if (match) return match[1];
+      if (finalUrl.match(/\d{15,}/)) return finalUrl.match(/\d{15,}/)[0];
+    } catch (e) {
+      console.error("Failed to resolve share link:", e.message);
+    }
+  }
+  return null;
+}
 
 function fetchTimeline(api) {
   return new Promise((resolve) => {
@@ -79,12 +108,11 @@ module.exports.run = async ({ api, event, args, utils }) => {
     return api.sendMessage(utils.error("Usage:\n!af on - Start auto monitor\n!af stop - Stop monitor\n!af <url> - Manual monitor"), event.threadID);
   }
 
-  let postID = null;
-  const match = url.match(/(?:posts|permalink|photo|story_fbid)\/(?:.*?)?(\d{10,})/);
-  if (match) postID = match[1];
-  else if (url.match(/\d{10,}/)) postID = url.match(/\d{10,}/)[0];
+  const loading = await api.sendMessage("⏳ Resolving post URL...", event.threadID);
+  const postID = await resolvePostId(url);
+  api.unsendMessage(loading.messageID);
 
-  if (!postID) return api.sendMessage(utils.error("Invalid URL."), event.threadID);
+  if (!postID) return api.sendMessage(utils.error("Invalid URL. Could not extract Post ID."), event.threadID);
 
   api.postReaction(postID, "❤️", () => {});
   api.comment("Nice post! 🔥", postID, () => {});
