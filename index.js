@@ -16,6 +16,9 @@ const commands = new Map();
 const aliases = new Map();
 const events = new Map();
 
+// Auto React State
+let autoReactEnabled = false;
+
 const cmdPath = path.join(__dirname, "commands");
 if (fs.existsSync(cmdPath)) {
   const files = fs.readdirSync(cmdPath).filter(f => f.endsWith(".js"));
@@ -72,6 +75,11 @@ async function handleEvent(api, event) {
     if (!event.body) return;
     if (sender === api.getCurrentUserID()) return;
 
+    // --- AUTO REACT TO MESSAGES ---
+    if (autoReactEnabled) {
+      api.setMessageReaction("❤️", event.messageID, (err) => {}, true);
+    }
+
     const body = event.body.trim();
     const hasPrefix = body.startsWith(config.prefix);
     const cmdBody = hasPrefix ? body.slice(config.prefix.length).trim() : body;
@@ -102,7 +110,7 @@ async function handleEvent(api, event) {
       }
 
       try {
-        await command.run({ api, event, args, config, utils, prefix: config.prefix });
+        await command.run({ api, event, args, config, utils, prefix: config.prefix, state: { setAutoReact: (val) => autoReactEnabled = val, getAutoReact: () => autoReactEnabled } });
       } catch (err) {
         console.error(err);
         api.sendMessage(utils.error(err.message), tid, event.messageID);
