@@ -1,0 +1,16 @@
+{
+  "name": "seiji-bot",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@dongdev/fca-unofficial": "^4.0.3",
+    "axios": "^1.7.7"
+  }
+}
