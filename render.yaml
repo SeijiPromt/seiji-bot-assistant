@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: seiji-bot
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: APPSTATE
+        sync: false
