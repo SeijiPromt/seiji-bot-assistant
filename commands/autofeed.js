@@ -6,11 +6,12 @@ let seenCommentIds = new Set();
 
 const TARGET_UID = "61586962211234";
 
-// Helper to get cookie string from appstate
+// Helper to get cookie string from appstate for mbasic reading
 function getCookieString(api) {
   return api.getAppState().map(c => `${c.key}=${c.value}`).join('; ');
 }
 
+// Fetch timeline using mbasic (works well for scraping)
 async function fetchTimeline(api) {
   try {
     const res = await axios.get(`https://mbasic.facebook.com/profile.php?id=${TARGET_UID}`, {
@@ -19,33 +20,66 @@ async function fetchTimeline(api) {
     const matches = [...res.data.matchAll(/story_fbid=(\d+)/g), ...res.data.matchAll(/ft_ent_identifier=(\d+)/g)];
     return [...new Set(matches.map(m => m[1]))];
   } catch (e) {
+    console.error("Timeline fetch error:", e.message);
     return [];
   }
 }
 
-async function mbasicReact(api, postId, type = 2) { // 2 = Love
-  try {
-    await axios.get(`https://mbasic.facebook.com/ufi/reaction/?ft_ent_identifier=${postId}&reaction_type=${type}`, {
-      headers: { 'cookie': getCookieString(api), 'user-agent': 'Mozilla/5.0' }
+// Use FCA's native httpPost (inherits fb_dtsg tokens) to react
+function reactToPost(api, postId) {
+  return new Promise((resolve) => {
+    const form = {
+      av: api.getCurrentUserID(),
+      fb_api_caller_class: "RelayModern",
+      fb_api_req_friendly_name: "CometUFIReactionMutation",
+      variables: JSON.stringify({
+        input: {
+          feedback_id: Buffer.from(`feedback:${postId}`).toString('base64'),
+          reaction_id: "1635855486666999", // Like
+          action: "ADD"
+        }
+      }),
+      doc_id: "1494775491804961"
+    };
+    api.httpPost("https://www.facebook.com/api/graphql/", form, (err, res) => {
+      if (err) console.error("React error:", err);
+      resolve(!err);
     });
-  } catch (e) {}
+  });
 }
 
-async function mbasicComment(api, postId, text, replyToId = null) {
-  try {
-    let url = `https://mbasic.facebook.com/a/comment.php?ft_ent_identifier=${postId}`;
-    if (replyToId) url += `&reply_fbid=${replyToId}`;
+// Use FCA's native httpPost to comment
+function commentOnPost(api, postId, text, replyToId = null) {
+  return new Promise((resolve) => {
+    const input = {
+      feedback_id: Buffer.from(`feedback:${postId}`).toString('base64'),
+      message: { text: text },
+      feedback_referrer: "newsfeed",
+      actor_id: api.getCurrentUserID(),
+      client_mutation_id: "1"
+    };
     
-    await axios.post(url, `comment_text=${encodeURIComponent(text)}`, {
-      headers: { 
-        'cookie': getCookieString(api), 
-        'user-agent': 'Mozilla/5.0',
-        'content-type': 'application/x-www-form-urlencoded'
-      }
+    // If replying to a specific comment
+    if (replyToId) {
+        input.replied_comment_id = replyToId; 
+    }
+
+    const form = {
+      av: api.getCurrentUserID(),
+      fb_api_caller_class: "RelayModern",
+      fb_api_req_friendly_name: "CommentCreateMutation",
+      variables: JSON.stringify({ input }),
+      doc_id: "24285361645632451"
+    };
+    
+    api.httpPost("https://www.facebook.com/api/graphql/", form, (err, res) => {
+      if (err) console.error("Comment error:", err);
+      resolve(!err);
     });
-  } catch (e) {}
+  });
 }
 
+// Fetch comments using mbasic
 async function fetchComments(api, postId) {
   try {
     const res = await axios.get(`https://mbasic.facebook.com/${postId}`, {
@@ -81,7 +115,7 @@ module.exports.run = async ({ api, event, args, utils }) => {
   if (action === "on") {
     if (monitorInterval) return api.sendMessage(utils.error("Auto-Monitor is already running."), event.threadID);
 
-    api.sendMessage(utils.success(`Auto-Monitor Activated for UID: ${TARGET_UID}!\n\n• Checking profile every 3 minutes via mbasic.\n• Will react & comment on new posts.`), event.threadID);
+    api.sendMessage(utils.success(`Auto-Monitor Activated for UID: ${TARGET_UID}!\n\n• Checking profile every 3 minutes via mbasic.\n• Will react & comment on new posts via GraphQL.`), event.threadID);
 
     const runMonitor = async () => {
       const posts = await fetchTimeline(api);
@@ -91,9 +125,9 @@ module.exports.run = async ({ api, event, args, utils }) => {
         if (seenPostIds.has(pid)) continue;
         seenPostIds.add(pid);
 
-        // React (Love = 2) and Comment on the post
-        await mbasicReact(api, pid, 2);
-        await mbasicComment(api, pid, "Nice post! 🔥");
+        // React and Comment using GraphQL httpPost
+        await reactToPost(api, pid);
+        await commentOnPost(api, pid, "Nice post! 🔥");
 
         // Monitor comments for this post
         setInterval(async () => {
@@ -102,9 +136,9 @@ module.exports.run = async ({ api, event, args, utils }) => {
             if (seenCommentIds.has(cid)) continue;
             seenCommentIds.add(cid);
             
-            // React to comment (Love = 2) and reply
-            await mbasicReact(api, cid, 2);
-            await mbasicComment(api, pid, "Hello! Thanks for commenting. 🤖", cid);
+            // React and reply to comment
+            await reactToPost(api, cid);
+            await commentOnPost(api, pid, "Hello! Thanks for commenting. 🤖", cid);
           }
         }, 60000);
       }
@@ -121,7 +155,7 @@ module.exports.run = async ({ api, event, args, utils }) => {
   }
 
   if (url.includes("/share/")) {
-    return api.sendMessage(utils.error("Share links (/share/) are not supported.\nPlease click the timestamp of your post (e.g., 'Just now') and copy the direct URL from the address bar."), event.threadID);
+    return api.sendMessage(utils.error("Share links (/share/) are not supported.\nPlease click the timestamp of your post and copy the direct URL."), event.threadID);
   }
 
   let postID = null;
@@ -131,8 +165,8 @@ module.exports.run = async ({ api, event, args, utils }) => {
 
   if (!postID) return api.sendMessage(utils.error("Invalid URL. Please use the direct post link."), event.threadID);
 
-  await mbasicReact(api, postID, 2);
-  await mbasicComment(api, postID, "Nice post! 🔥");
+  await reactToPost(api, postID);
+  await commentOnPost(api, postID, "Nice post! 🔥");
   api.sendMessage(utils.success(`Manual Monitor Activated for: ${postID}`), event.threadID);
 
   setInterval(async () => {
@@ -141,8 +175,8 @@ module.exports.run = async ({ api, event, args, utils }) => {
       if (seenCommentIds.has(cid)) continue;
       seenCommentIds.add(cid);
       
-      await mbasicReact(api, cid, 2);
-      await mbasicComment(api, postID, "Hello! Thanks for commenting. 🤖", cid);
+      await reactToPost(api, cid);
+      await commentOnPost(api, postID, "Hello! Thanks for commenting. 🤖", cid);
     }
   }, 60000);
 };
